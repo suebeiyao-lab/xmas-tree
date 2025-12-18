@@ -3,79 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Xmas Pro: Artistic Spiral</title>
+    <title>Xmas Pro: Kinetic Sculpture</title>
     <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.1/dist/tween.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        body { margin: 0; background: #000; overflow: hidden; }
         #start-screen { position: fixed; inset: 0; background: #000; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #d4af37; }
         #start-btn { padding: 15px 40px; background: #d4af37; border: none; border-radius: 30px; font-weight: bold; cursor: pointer; }
-        #webcam-wrap { position: absolute; bottom: 10px; right: 10px; width: 80px; height: 100px; border: 1px solid #d4af37; border-radius: 5px; overflow: hidden; transform: scaleX(-1); opacity: 0.5; }
+        #webcam-wrap { position: absolute; bottom: 10px; right: 10px; width: 80px; height: 100px; border: 1px solid #d4af37; border-radius: 5px; overflow: hidden; transform: scaleX(-1); opacity: 0.3; }
         video { width: 100%; height: 100%; object-fit: cover; }
-        #cursor { position: absolute; width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; transform: translate(-50%,-50%); display: none; z-index: 100; pointer-events: none; }
-        .upload-area { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 101; }
-        .btn { background: rgba(0,0,0,0.6); border: 1px solid #d4af37; color: #d4af37; padding: 10px 20px; border-radius: 20px; cursor: pointer; }
+        #cursor { position: absolute; width: 25px; height: 25px; border: 2px solid #fff; border-radius: 50%; transform: translate(-50%,-50%); display: none; z-index: 100; pointer-events: none; }
+        .upload-area { position: absolute; bottom: 20px; left: 20px; z-index: 101; }
+        .btn { background: rgba(0,0,0,0.6); border: 1px solid #d4af37; color: #d4af37; padding: 8px 15px; border-radius: 15px; font-size: 12px; }
     </style>
 </head>
 <body>
 
 <div id="start-screen">
-    <h2 style="letter-spacing:4px">XMAS ARTISTIC VISION</h2>
-    <button id="start-btn">确认进入</button>
+    <h2 style="letter-spacing:5px">XMAS KINETIC ART</h2>
+    <p style="font-size:12px; opacity:0.7">握拳：凝聚能量 | 拖拽：改变视角 | 捏合：查看照片</p>
+    <button id="start-btn">开启幻境</button>
 </div>
 
 <div id="cursor"></div>
 <div id="webcam-wrap"><video id="webcam" playsinline muted></video></div>
-
 <div class="upload-area">
     <input type="file" id="file-in" multiple style="display:none">
-    <button class="btn" onclick="document.getElementById('file-in').click()">添加照片</button>
+    <button class="btn" onclick="document.getElementById('file-in').click()">存入记忆</button>
 </div>
 
 <script>
-let scene, camera, renderer, treeGroup, targetRot = {x:0, y:0}, selectedPhoto = null;
+let scene, camera, renderer, treeGroup, star;
+let corePoints, activePoints; // 绿色主体 与 活跃螺旋
+let lastHandPos = { x: 0, y: 0 }, isDragging = false, isFist = false;
+let globalRot = { x: 0, y: 0 };
+let photoMeshes = [], selectedPhoto = null;
 const raycaster = new THREE.Raycaster();
-const photoMeshes = [];
-
-// --- 1. 创建金色发光五角星 ---
-function createStar() {
-    const pts = [];
-    for (let i = 0; i < 10; i++) {
-        const l = i % 2 === 1 ? 0.45 : 1.2;
-        const a = i / 5 * Math.PI;
-        pts.push(new THREE.Vector2(Math.cos(a) * l, Math.sin(a) * l));
-    }
-    const shape = new THREE.Shape(pts);
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: true, bevelThickness:0.1 });
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 1, roughness: 0.1, emissive: 0x443300 });
-    const star = new THREE.Mesh(geo, mat);
-    star.rotation.z = Math.PI / 10;
-    return star;
-}
-
-// --- 2. 无损裁切相框 (Object-Fit Cover) ---
-function createPhotoFrame(texture) {
-    const group = new THREE.Group();
-    const aspect = texture.image.width / texture.image.height;
-    
-    texture.matrixAutoUpdate = false;
-    if (aspect > 1) texture.matrix.setUvTransform(0, 0, 1/aspect, 1, 0, 0.5, 0.5);
-    else texture.matrix.setUvTransform(0, 0, 1, aspect, 0, 0.5, 0.5);
-
-    const photo = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: texture }));
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(4.4, 4.4, 0.15), new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9 }));
-    frame.position.z = -0.12;
-
-    group.add(photo, frame);
-    return group;
-}
 
 function init() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 1000);
-    camera.position.set(0, 5, 32);
+    camera.position.set(0, 5, 35);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -84,130 +54,165 @@ function init() {
     treeGroup = new THREE.Group();
     scene.add(treeGroup);
 
-    // --- 3. 核心改进：三色按线性分布的螺旋粒子 ---
-    const count = 9000; // 增加粒子数，更华丽
-    const pos = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    
-    const colorGold = new THREE.Color(0xffd700);
-    const colorRed = new THREE.Color(0xff2222);
-    const colorGreen = new THREE.Color(0x22ff66);
-
-    for(let i=0; i<count; i++) {
-        const t = i / count; // 0 to 1
-        const spiralOffset = (i % 2 === 0) ? 0 : Math.PI; // 双螺旋
-        const angle = t * Math.PI * 12 + spiralOffset; // 严格 6 圈
-        const baseRadius = (1 - t) * 9; 
-        
-        // 蓬松感控制：增加散度，让粒子不只是紧贴线，而是微微聚合
-        const spread = 1.2; 
-        const jitterX = (Math.random() - 0.5) * spread;
-        const jitterZ = (Math.random() - 0.5) * spread;
-
-        pos[i*3] = Math.cos(angle) * baseRadius + jitterX;
-        pos[i*3+1] = t * 20 - 9;
-        pos[i*3+2] = Math.sin(angle) * baseRadius + jitterZ;
-
-        // 颜色按线性位置(角度)分布
-        const colorZone = (angle % (Math.PI * 2)) / (Math.PI * 2);
-        let finalColor;
-        if (colorZone < 0.33) finalColor = colorGold;
-        else if (colorZone < 0.66) finalColor = colorRed;
-        else finalColor = colorGreen;
-
-        colors[i*3] = finalColor.r; 
-        colors[i*3+1] = finalColor.g; 
-        colors[i*3+2] = finalColor.b;
+    // 1. 绿色粒子主体 (锥形分布)
+    const coreCount = 4000;
+    const coreGeo = new THREE.BufferGeometry();
+    const corePos = new Float32Array(coreCount * 3);
+    for(let i=0; i<coreCount; i++) {
+        const t = Math.random();
+        const r = (1 - t) * 8 * Math.sqrt(Math.random());
+        const angle = Math.random() * Math.PI * 2;
+        corePos[i*3] = Math.cos(angle) * r;
+        corePos[i*3+1] = t * 20 - 10;
+        corePos[i*3+2] = Math.sin(angle) * r;
     }
+    coreGeo.setAttribute('position', new THREE.BufferAttribute(corePos, 3));
+    corePoints = new THREE.Points(coreGeo, new THREE.PointsMaterial({ color: 0x116633, size: 0.1, transparent: true, opacity: 0.6 }));
+    treeGroup.add(corePoints);
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const pMat = new THREE.PointsMaterial({ size: 0.14, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.8 });
-    treeGroup.add(new THREE.Points(geo, pMat));
+    // 2. 活跃粒子 (双螺旋 - 红金两色)
+    const activeCount = 6000;
+    const activeGeo = new THREE.BufferGeometry();
+    const activePos = new Float32Array(activeCount * 3);
+    const activeColors = new Float32Array(activeCount * 3);
+    const targetPos = new Float32Array(activeCount * 3); // 螺旋目标位置
+    const scatterPos = new Float32Array(activeCount * 3); // 散开位置
 
-    const star = createStar();
-    star.position.y = 11.5;
+    for(let i=0; i<activeCount; i++) {
+        const t = i / activeCount;
+        const spiral = (i % 2) * Math.PI;
+        const angle = t * Math.PI * 12 + spiral; // 6圈
+        const r = (1 - t) * 9;
+
+        // 目标螺旋点
+        targetPos[i*3] = Math.cos(angle) * r;
+        targetPos[i*3+1] = t * 20 - 10;
+        targetPos[i*3+2] = Math.sin(angle) * r;
+
+        // 初始随机散开点 (极其稀疏)
+        scatterPos[i*3] = (Math.random() - 0.5) * 60;
+        scatterPos[i*3+1] = (Math.random() - 0.5) * 60;
+        scatterPos[i*3+2] = (Math.random() - 0.5) * 60;
+
+        activePos[i*3] = scatterPos[i*3];
+        activePos[i*3+1] = scatterPos[i*3+1];
+        activePos[i*3+2] = scatterPos[i*3+2];
+
+        const col = (i % 2 === 0) ? new THREE.Color(0xffd700) : new THREE.Color(0xff2222);
+        activeColors[i*3] = col.r; activeColors[i*3+1] = col.g; activeColors[i*3+2] = col.b;
+    }
+    activeGeo.setAttribute('position', new THREE.BufferAttribute(activePos, 3));
+    activeGeo.setAttribute('color', new THREE.BufferAttribute(activeColors, 3));
+    activePoints = new THREE.Points(activeGeo, new THREE.PointsMaterial({ size: 0.15, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true }));
+    activePoints.userData = { scatterPos, targetPos };
+    treeGroup.add(activePoints);
+
+    // 3. 星星与照片容器
+    const starPts = [];
+    for(let i=0;i<10;i++) { const r=i%2?0.5:1.2; const a=i/5*Math.PI; starPts.push(new THREE.Vector2(Math.cos(a)*r, Math.sin(a)*r)); }
+    star = new THREE.Mesh(new THREE.ExtrudeGeometry(new THREE.Shape(starPts),{depth:0.2,bevelEnabled:false}), new THREE.MeshBasicMaterial({color:0xffd700}));
+    star.position.y = 11;
     treeGroup.add(star);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const pointLight = new THREE.PointLight(0xffd700, 2, 50);
-    pointLight.position.set(0, 10, 5);
-    scene.add(pointLight);
+    scene.add(new THREE.AmbientLight(0xffffff, 1));
 }
 
-// --- 4. 捏合放大交互 ---
+// 粒子平滑转换逻辑
+function updateParticles(toFist) {
+    const pos = activePoints.geometry.attributes.position.array;
+    const targets = toFist ? activePoints.userData.targetPos : activePoints.userData.scatterPos;
+    for(let i=0; i<pos.length; i++) {
+        pos[i] += (targets[i] - pos[i]) * 0.1; // 插值动画
+    }
+    activePoints.geometry.attributes.position.needsUpdate = true;
+}
+
+// 手势判定逻辑
 async function startAI() {
     const video = document.getElementById('webcam');
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        await video.play();
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream; await video.play();
 
-        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.75 });
+    const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.75 });
+    
+    hands.onResults(res => {
+        if (!res.multiHandLandmarks || !res.multiHandLandmarks[0]) { 
+            isDragging = false; document.getElementById('cursor').style.display='none'; return; 
+        }
+        const lm = res.multiHandLandmarks[0];
+        const x = lm[9].x, y = lm[9].y;
         
-        hands.onResults(res => {
-            if (!res.multiHandLandmarks || !res.multiHandLandmarks[0]) {
-                document.getElementById('cursor').style.display = 'none';
-                return;
-            }
-            const lm = res.multiHandLandmarks[0];
-            const x = lm[9].x, y = lm[9].y;
+        // 1. 握拳判定 (指尖到掌心的平均距离)
+        const tips = [8, 12, 16, 20];
+        let avgDist = 0;
+        tips.forEach(idx => { avgDist += Math.hypot(lm[idx].x - lm[0].x, lm[idx].y - lm[0].y); });
+        isFist = (avgDist / 4) < 0.15;
 
-            const cursor = document.getElementById('cursor');
-            cursor.style.display = 'block';
-            cursor.style.left = (x * 100) + '%';
-            cursor.style.top = (y * 100) + '%';
+        // 2. 视角拖拽 (握拳时)
+        if (isFist) {
+            if (!isDragging) { isDragging = true; lastHandPos = { x, y }; }
+            globalRot.y += (x - lastHandPos.x) * 5;
+            globalRot.x += (y - lastHandPos.y) * 3;
+            lastHandPos = { x, y };
+        } else { isDragging = false; }
 
-            targetRot.y = (x - 0.5) * 4;
-            targetRot.x = (y - 0.5) * 2;
+        // 3. 捏合放大
+        const pinch = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
+        const cursor = document.getElementById('cursor');
+        cursor.style.display = 'block';
+        cursor.style.left = (x * 100) + '%'; cursor.style.top = (y * 100) + '%';
 
-            const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
-            if (pinchDist < 0.04) { 
-                cursor.style.borderColor = "#ff4444";
-                if (!selectedPhoto) {
-                    const ndcX = (1 - x) * 2 - 1; 
-                    const ndcY = -(y * 2 - 1);
-                    raycaster.setFromCamera({x: ndcX, y: ndcY}, camera);
-                    const intersects = raycaster.intersectObjects(photoMeshes, true);
-                    if (intersects.length > 0) {
-                        let obj = intersects[0].object;
-                        while(obj.parent !== treeGroup) obj = obj.parent;
-                        selectedPhoto = obj;
-                        new TWEEN.Tween(obj.position).to({ x:0, y:5, z:18 }, 600).easing(TWEEN.Easing.Back.Out).start();
-                    }
+        if (pinch < 0.04) {
+            cursor.style.borderColor = "red";
+            if (!selectedPhoto) {
+                raycaster.setFromCamera({x: (1-x)*2-1, y: -(y*2-1)}, camera);
+                const hits = raycaster.intersectObjects(photoMeshes, true);
+                if (hits.length > 0) {
+                    selectedPhoto = hits[0].object;
+                    while(selectedPhoto.parent !== treeGroup) selectedPhoto = selectedPhoto.parent;
+                    new TWEEN.Tween(selectedPhoto.position).to({ x:0, y:5, z:22 }, 600).easing(TWEEN.Easing.Back.Out).start();
+                    // 核心修正：正对屏幕
+                    new TWEEN.Tween(selectedPhoto.rotation).to({ x:0, y:0, z:0 }, 600).start();
                 }
-            } else if (pinchDist > 0.08 && selectedPhoto) { 
-                cursor.style.borderColor = "white";
-                new TWEEN.Tween(selectedPhoto.position).to({ 
-                    x: selectedPhoto.userData.origin.x, 
-                    y: selectedPhoto.userData.origin.y, 
-                    z: selectedPhoto.userData.origin.z 
-                }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                selectedPhoto = null;
             }
-        });
+        } else if (selectedPhoto) {
+            cursor.style.borderColor = "white";
+            new TWEEN.Tween(selectedPhoto.position).to({ x: selectedPhoto.userData.originPos.x, y: selectedPhoto.userData.originPos.y, z: selectedPhoto.userData.originPos.z }, 500).start();
+            new TWEEN.Tween(selectedPhoto.rotation).to({ x: selectedPhoto.userData.originRot.x, y: selectedPhoto.userData.originRot.y, z: selectedPhoto.userData.originRot.z }, 500).start();
+            selectedPhoto = null;
+        }
+    });
 
-        new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 480, height: 640 }).start();
-        document.getElementById('start-screen').style.display = 'none';
-    } catch(e) { alert("摄像头启动失败，请检查 HTTPS 环境。"); }
+    new Camera(video, { onFrame: async () => { await hands.send({ image: video }); } }).start();
+    document.getElementById('start-screen').style.display = 'none';
 }
 
+// 照片上传逻辑 (尺寸缩小)
 document.getElementById('file-in').onchange = (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(file => {
+    Array.from(e.target.files).forEach(file => {
         const url = URL.createObjectURL(file);
         new THREE.TextureLoader().load(url, (tex) => {
-            const frame = createPhotoFrame(tex);
+            const aspect = tex.image.width / tex.image.height;
+            tex.matrixAutoUpdate = false;
+            if (aspect > 1) tex.matrix.setUvTransform(0, 0, 1/aspect, 1, 0, 0.5, 0.5);
+            else tex.matrix.setUvTransform(0, 0, 1, aspect, 0, 0.5, 0.5);
+
+            const group = new THREE.Group();
+            const photo = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 2.5), new THREE.MeshBasicMaterial({ map: tex }));
+            const frame = new THREE.Mesh(new THREE.BoxGeometry(2.7, 2.7, 0.1), new THREE.MeshStandardMaterial({ color: 0xd4af37 }));
+            frame.position.z = -0.1;
+            group.add(photo, frame);
+
             const t = Math.random() * 0.8 + 0.1;
             const angle = Math.random() * Math.PI * 2;
-            const r = (1 - t) * 9.5;
-            frame.position.set(Math.cos(angle)*r, t*16-7, Math.sin(angle)*r);
-            frame.lookAt(0, frame.position.y, 0);
-            frame.userData.origin = frame.position.clone();
-            treeGroup.add(frame);
-            photoMeshes.push(frame);
+            const r = (1 - t) * 9;
+            group.position.set(Math.cos(angle)*r, t*18-9, Math.sin(angle)*r);
+            group.lookAt(0, group.position.y, 0);
+            
+            group.userData = { originPos: group.position.clone(), originRot: group.rotation.clone() };
+            treeGroup.add(group);
+            photoMeshes.push(group);
         });
     });
 };
@@ -215,9 +220,11 @@ document.getElementById('file-in').onchange = (e) => {
 function animate() {
     requestAnimationFrame(animate);
     TWEEN.update();
+    updateParticles(isFist); // 根据是否握拳动态更新粒子位置
+    
     if(treeGroup) {
-        treeGroup.rotation.y += (targetRot.y - treeGroup.rotation.y) * 0.05;
-        treeGroup.rotation.x += (targetRot.x - treeGroup.rotation.x) * 0.05;
+        treeGroup.rotation.y += (globalRot.y - treeGroup.rotation.y) * 0.1;
+        treeGroup.rotation.x += (globalRot.x - treeGroup.rotation.x) * 0.1;
     }
     renderer.render(scene, camera);
 }
